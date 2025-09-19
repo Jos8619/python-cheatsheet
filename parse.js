@@ -12,7 +12,7 @@
 const fs = require('fs');
 const jsdom = require('jsdom');
 const showdown  = require('showdown');
-const hljs = require('highlightjs');
+const hljs = require('highlight.js');
 
 
 const TOC =
@@ -413,21 +413,85 @@ const DIAGRAM_18_B =
   "┗━━━━━━━━━━━━━┷━━━━━━━━━━━━━┷━━━━━━━━━━━━━┷━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━┛\n";
 
 
-function main() {
-  const html = getMd();
+function main(argv = process.argv.slice(2)) {
+  let options;
+  try {
+    options = parseArgs(argv);
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (options.help) {
+    showHelp();
+    return;
+  }
+
+  const html = getMd(options.readme);
   initDom(html);
   modifyPage();
-  const template = readFile('web/template.html');
+  const template = readFile(options.template);
   const tokens = template.split('<div id=main_container></div>');
   const text = `${tokens[0]} ${document.body.innerHTML} ${tokens[1]}`;
-  writeToFile('index.html', text);
+  writeToFile(options.output, text);
 }
 
-function getMd() {
-  var readme = readFile('README.md');
+function getMd(readmePath) {
+  var readme = readFile(readmePath);
   var readme = readme.replace("#semaphore-event-barrier", "#semaphoreeventbarrier");
   const converter = new showdown.Converter();
   return converter.makeHtml(readme);
+}
+
+function parseArgs(args) {
+  const options = {
+    help: false,
+    readme: 'README.md',
+    template: 'web/template.html',
+    output: 'index.html',
+  };
+
+  for (let index = 0; index < args.length; index += 1) {
+    const token = args[index];
+
+    if (token === '--help' || token === '-h') {
+      options.help = true;
+      break;
+    }
+
+    if (!token.startsWith('--')) {
+      throw new Error(`Unknown argument "${token}".`);
+    }
+
+    const [flag, inlineValue] = token.split('=');
+    const optionName = flag.slice(2);
+    if (!['readme', 'template', 'output'].includes(optionName)) {
+      throw new Error(`Unknown option "${flag}".`);
+    }
+
+    let value = inlineValue;
+    if (value === undefined) {
+      index += 1;
+      value = args[index];
+      if (value === undefined) {
+        throw new Error(`Missing value for option "${flag}".`);
+      }
+    }
+
+    options[optionName] = value;
+  }
+
+  return options;
+}
+
+function showHelp() {
+  console.log(`Usage: node parse.js [options]\n\n` +
+              `Options:\n` +
+              `  -h, --help             Show this message and exit.\n` +
+              `  --readme <path>        Path to the Markdown source (default: README.md).\n` +
+              `  --template <path>      HTML template that contains the main container placeholder (default: web/template.html).\n` +
+              `  --output <path>        Destination HTML file (default: index.html).`);
 }
 
 function initDom(html) {
@@ -600,11 +664,19 @@ function readFile(filename) {
 }
 
 function writeToFile(filename, text) {
-  try {  
+  try {
     return fs.writeFileSync(filename, text, 'utf8');
   } catch(e) {
     console.error('Error:', e.stack);
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  main,
+  parseArgs,
+  showHelp,
+};
